@@ -1,2 +1,2 @@
 # pdc-mgmt-bg
-use node, koa
+use node, express
