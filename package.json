@@ -20,6 +20,8 @@
   "homepage": "https://github.com/Kacoo/pdc-mgmt-bg#readme",
   "dependencies": {
     "express": "^4.17.1",
-    "gm": "^1.23.1"
+    "fs": "^0.0.1-security",
+    "gm": "^1.23.1",
+    "imageMagick": "^0.1.2"
   }
 }

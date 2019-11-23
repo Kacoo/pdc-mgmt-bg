@@ -179,6 +179,11 @@ fresh@0.5.2:
   resolved "https://registry.npm.taobao.org/fresh/download/fresh-0.5.2.tgz#3d8cadd90d976569fa835ab1f8e4b23a105605a7"
   integrity sha1-PYyt2Q2XZWn6g1qx+OSyOhBWBac=
 
+fs@^0.0.1-security:
+  version "0.0.1-security"
+  resolved "https://registry.npm.taobao.org/fs/download/fs-0.0.1-security.tgz#8a7bd37186b6dddf3813f23858b57ecaaf5e41d4"
+  integrity sha1-invTcYa23d84E/I4WLV+yq9eQdQ=
+
 gm@^1.23.1:
   version "1.23.1"
   resolved "https://registry.npm.taobao.org/gm/download/gm-1.23.1.tgz#2edeeb958084d0f8ea7988e5d995b1c7dfc14777"
@@ -188,6 +193,11 @@ gm@^1.23.1:
     array-series "~0.1.5"
     cross-spawn "^4.0.0"
     debug "^3.1.0"
+
+graphicsmagick@^0.0.1:
+  version "0.0.1"
+  resolved "https://registry.npm.taobao.org/graphicsmagick/download/graphicsmagick-0.0.1.tgz#0af95878190dcbd1028e46c13526f5284245bf29"
+  integrity sha1-CvlYeBkNy9ECjkbBNSb1KEJFvyk=
 
 http-errors@1.7.2:
   version "1.7.2"
@@ -217,6 +227,11 @@ iconv-lite@0.4.24:
   integrity sha1-ICK0sl+93CHS9SSXSkdKr+czkIs=
   dependencies:
     safer-buffer ">= 2.1.2 < 3"
+
+imageMagick@^0.1.2:
+  version "0.1.2"
+  resolved "https://registry.npm.taobao.org/imageMagick/download/imageMagick-0.1.2.tgz#1bca34f88984d0586693fa3e0615d5b634ff365c"
+  integrity sha1-G8o0+ImE0Fhmk/o+BhXVtjT/Nlw=
 
 inherits@2.0.3:
   version "2.0.3"
