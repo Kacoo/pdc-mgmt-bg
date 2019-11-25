@@ -12,14 +12,9 @@ const path = require('path');
 const gm = require('gm').subClass({ imageMagick: 'true' });
 const app = express();
 
-
-
-
-
-
 // 似乎gm无法直接处理base64编码的图片，所以先将图片保存到本地，然后再用gm处理
-let basePath = `F:/7KaCode/pdc-mgmt-bg/raw-img/`
-var tempPath
+const basePath = `F:/7KaCode/pdc-mgmt-bg/raw-img/`
+let tempPath
 
 // 不知道用来干啥，可能是对post的body数据json化？
 app.use(bodyParser.json({ limit: '10mb' })); // 支持10mb的post数据
@@ -60,7 +55,6 @@ app.post('/images', function (req, res) {
   console.log(filePathList)
 
 
-  // let resData = []
   getBase64Img(filePathList)
     .then(() => {
       // 先从本地读个图片！
@@ -76,6 +70,9 @@ app.post('/images', function (req, res) {
           // console.log(needProcessedData)
           let wordList = dealResData(needProcessedData.TextDetections)
           res.send(wordList)
+        }, err => {
+          console.log(err)
+          res.send({ 'err': err })
         })
       // .then(data => {
       //   // 将识图结果作为/images接口返回数据
@@ -99,16 +96,16 @@ app.post('/images', function (req, res) {
 });
 
 //配置服务端口
-let server = app.listen(3000, function () {
+let server = app.listen(3000, () => {
   let host = server.address().address;
   let port = server.address().port;
-  console.log('Example app listening at http://%s:%s', host, port);
+  console.log(`Example app listening at http://${host}:${port}`);
 })
 
 
 const getBase64Img = (data) => {
   return new Promise((resolve, reject) => {
-    // 这里试一下gm的拼图
+    // 拼接图片，从上至下
     gm().append(...data)
       .write(tempPath, function (err) {
         if (!err) {
@@ -182,15 +179,25 @@ const dealResData = (data) => {
   let wordList = []
   // 先判断一下数组长度是否为3的倍数，是-继续，否-return
   if (!data.length || data.length % 3 !== 0) {
-    return "文字识别出错"
+    // console.log(data)
+    return {
+      msg: '文字识别结果没有值，或者不是3的倍数',
+      data:data
+    }
   }
   // 将不需要的词汇所在的对象过滤掉（职位名称）
   let baseData1 = data.filter(item => uselessCharacter.indexOf(item.DetectedText) <= -1)
   // 拆分成两个数组，第一个是玩家姓名对象nameList，第二个是副本成绩scoreList
-  // 但是这样子会修改原数组baseData1
+  // 害，有时候会把数字1识别成反斜杠'\'，所以只能用isNaN(+'5\'[0])这种low到爆的方法来过滤
+  // 截至2019-11-25，家族没有人的nickname是数字开头的（捂脸
   let step = baseData1.length / 2
-  let nameList = baseData1.splice(0, step)
-  let scoreList = baseData1
+  let nameList = baseData1.filter(item => isNaN(+item.DetectedText[0]))
+  let scoreList = baseData1.filter(item => !isNaN(+item.DetectedText[0]))
+  // console.log(scoreList)
+  console.log(`nameList: ${nameList.length}，scoreList: ${scoreList.length}`)
+  if (!nameList.length || !scoreList.length) {
+    return `nameList: ${nameList.length}，scoreList: ${scoreList.length}`
+  }
   for (let i = 0; i < step; i++) {
     wordList.push({
       name: nameList[i].DetectedText,
