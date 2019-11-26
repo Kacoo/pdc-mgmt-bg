@@ -131,8 +131,8 @@ const getTencentCloudOrcInfo = (content) => {
     const ClientProfile = tencentcloud.common.ClientProfile;
 
     // secretId & secretKey 需要在腾讯云-控制台-访问密钥-API密钥管理获取
-    const secretId = 'AKIDB9wMddnyRnumRvgYbTFm9K1Uh0788Odh'
-    const secretKey = 'xfAScWdS6UcWEWYJo8dNr4UAbmhR0Icg'
+    const secretId = '(*^▽^*)'
+    const secretKey = 'O(∩_∩)O~'
 
     // 实例化一个认证对象，入参需要传入腾讯云账户secretId，secretKey
     let cred = new Credential(secretId, secretKey);
