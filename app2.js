@@ -7,10 +7,12 @@ const bodyParser = require('body-parser')
 const qs = require('qs')
 const fs = require("fs");
 const tencentcloud = require('tencentcloud-sdk-nodejs') // 好奇怪，前面为啥加那么多../
-
 const path = require('path');
 const gm = require('gm').subClass({ imageMagick: 'true' });
 const app = express();
+// 自己写的模块
+const apiKey = require('./private/api-key')
+const db = require('./public/mysql')
 
 // 似乎gm无法直接处理base64编码的图片，所以先将图片保存到本地，然后再用gm处理
 const basePath = `F:/7KaCode/pdc-mgmt-bg/raw-img/`
@@ -35,12 +37,22 @@ app.all('*', function (req, res, next) {
 app.post('/images', function (req, res) {
   let content = req.body
   // console.log(JSON.stringify(content))
+  // 将副本信息录入instance_list
+  // 其实只要录一次就行，但是暂时还没办法判断是否重复诶
+  db.insert('instance_list', {
+    instance_name: content.instanceName,
+    instance_id: content.instanceId,
+    start_time: content.statisticalPeriod.split('至')[0],
+    end_time: content.statisticalPeriod.split('至')[1],
+  })
+
   // 坑爹，不知道为什么，一张图片就是string，两张图片就是array(原数据image: ['newImgList']，后台接收时变成image: 'newImgList')
   // 黑雪说是解析的锅，好吧自己处理下（
   let imgList = typeof content.image === 'string' ? [content.image] : content.image
   // 拼接图片的保存地址，不知道怎么给下面用啊啊啊啊啊只能在上面用var先声明一波了
   tempPath = `${basePath}${content.statisticalTime}${content.instanceName}.jpg`
-  let filePathList = [] // 用来存放图片的地址
+  // 用来存放图片的地址
+  let filePathList = []
   imgList.map((item, index) => {
     var dataBuffer = new Buffer(item, 'base64');
     // 害，令人窒息的命名方式
@@ -53,7 +65,6 @@ app.post('/images', function (req, res) {
     });
   })
   console.log(filePathList)
-
 
   getBase64Img(filePathList)
     .then(() => {
@@ -69,7 +80,21 @@ app.post('/images', function (req, res) {
           let needProcessedData = JSON.parse(result)
           // console.log(needProcessedData)
           let wordList = dealResData(needProcessedData.TextDetections)
-          res.send(wordList)
+
+          // 将处理好的玩家副本数据，扩充为数据库需要的格式
+          let insertArr = wordList.map(item => {
+            return {
+              instance_list_id: content.instanceId,
+              instance_list_name: content.instanceName,
+              player_name: item.name,
+              score: item.score
+            }
+          })
+          // 一条一条插入数据库，尴尬，拿不到返回值，不知道成功失败了多少条
+          insertArr.map(item => {
+            db.insert('instance_detail', item)
+          })
+          res.send({})
         }, err => {
           console.log(err)
           res.send({ 'err': err })
@@ -131,8 +156,8 @@ const getTencentCloudOrcInfo = (content) => {
     const ClientProfile = tencentcloud.common.ClientProfile;
 
     // secretId & secretKey 需要在腾讯云-控制台-访问密钥-API密钥管理获取
-    const secretId = '(*^▽^*)'
-    const secretKey = 'O(∩_∩)O~'
+    const secretId = apiKey.secretId
+    const secretKey = apiKey.secretKey
 
     // 实例化一个认证对象，入参需要传入腾讯云账户secretId，secretKey
     let cred = new Credential(secretId, secretKey);
@@ -182,7 +207,7 @@ const dealResData = (data) => {
     // console.log(data)
     return {
       msg: '文字识别结果没有值，或者不是3的倍数',
-      data:data
+      data: data
     }
   }
   // 将不需要的词汇所在的对象过滤掉（职位名称）
