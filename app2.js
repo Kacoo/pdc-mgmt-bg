@@ -13,9 +13,10 @@ const app = express();
 // 自己写的模块
 const apiKey = require('./private/api-key')
 const db = require('./public/mysql')
+const publicConfig = require('./public/config')
 
 // 似乎gm无法直接处理base64编码的图片，所以先将图片保存到本地，然后再用gm处理
-const basePath = `F:/7KaCode/pdc-mgmt-bg/raw-img/`
+const basePath = publicConfig.filePath
 let tempPath
 
 // 不知道用来干啥，可能是对post的body数据json化？
@@ -23,7 +24,7 @@ app.use(bodyParser.json({ limit: '10mb' })); // 支持10mb的post数据
 app.use(bodyParser.urlencoded({ extended: false }));
 
 //设置跨域访问
-app.all('*', function (req, res, next) {
+app.all('*', (req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Headers", "X-Requested-With, Content-Type");
   res.header("Access-Control-Allow-Methods", "PUT,POST,GET,DELETE,OPTIONS");
@@ -34,16 +35,18 @@ app.all('*', function (req, res, next) {
 });
 
 // 写个接口
-app.post('/images', function (req, res) {
+app.post('/images', (req, res) => {
   let content = req.body
   // console.log(JSON.stringify(content))
   // 将副本信息录入instance_list
   // 其实只要录一次就行，但是暂时还没办法判断是否重复诶
+  let startTime = content.statisticalPeriod.split('至')[0]
+  let endTime = content.statisticalPeriod.split('至')[1]
   db.insert('instance_list', {
     instance_name: content.instanceName,
     instance_id: content.instanceId,
-    start_time: content.statisticalPeriod.split('至')[0],
-    end_time: content.statisticalPeriod.split('至')[1],
+    start_time: startTime,
+    end_time: endTime,
   })
 
   // 坑爹，不知道为什么，一张图片就是string，两张图片就是array(原数据image: ['newImgList']，后台接收时变成image: 'newImgList')
@@ -75,50 +78,130 @@ app.post('/images', function (req, res) {
       return finalImgBase64
     })
     .then(data => {
-      getTencentCloudOrcInfo(data)
-        .then(result => {
-          let needProcessedData = JSON.parse(result)
-          // console.log(needProcessedData)
-          let wordList = dealResData(needProcessedData.TextDetections)
+      let sql1 = `SELECT * FROM instance_list WHERE instance_id = ${content.instanceId} AND start_time >= '${startTime}' AND end_time <= '${endTime}'`
+      let sql2 = `SELECT np.id, np.name, np.err_name FROM new_players np WHERE np.status = 1`
+      // 三个前置条件
+      // 1 - 获取文字识别结果
+      // 2 - 获取instance_list相应的副本id
+      // 3 - 从new_players获取现役的所有族员姓名name, id, err_name
+      let p1 = getTencentCloudOrcInfo(data)
+      let p2 = db.freeQuery('instance_list', sql1)
+      let p3 = db.freeQuery('new_players', sql2)
+      return Promise.all([p1, p2, p3])
+    })
+    .then(results => {
+      let needProcessedData = JSON.parse(results[0])
+      // console.log(needProcessedData)
+      let flag = dealResData(needProcessedData.TextDetections)
+      if (flag.status === 'false') {
+        res.send(flag)
+      }
+      let wordList = flag.data
+      console.log('wordList', wordList)
+      let instanceListId = results[1].data[0].id
+      let playerList = results[2].data.map(item => {
+        item.err_name = item.err_name ? item.err_name : '';
+        return item
+      })
+      // 将文字识别结果与对应的玩家数据合并
+      let rawData = playerList.map((item) => {
+        let match = wordList.filter((cur) => cur.name === item.name || item.err_name.indexOf(cur.name) > -1)
+        if (match.length) {
+          item.score = match[0].score
+          return item
+        }
+        item.score = null
+        return item
+      })
+      // 类似 { id: 5, name: '骑莹—首领拉我', err_name: '骑莹一首领拉我', score: '109' } 的数组
+      // console.log(rawData)
+      return {
+        instanceListId: instanceListId, // 当前周期的副本id
+        data: rawData
+      }
+    })
+    // 从数据库中获取现有的副本数据记录
+    .then((result) => {
+      let sql = `SELECT * FROM instance_detail WHERE instance_list_id = ${result.instanceListId}`
+      let p1 = result
+      let p2 = db.freeQuery('instance_detail', sql)
+      return Promise.all([p1, p2])
+    })
+    .then(results => {
+      let rawData = results[0].data
+      let instanceListId = results[0].instanceListId
+      // 已存在副本记录中的数据数组
+      let existData = results[1].data
+      // console.log(existData)
 
-          // 将处理好的玩家副本数据，扩充为数据库需要的格式
-          let insertArr = wordList.map(item => {
-            return {
-              instance_list_id: content.instanceId,
-              instance_list_name: content.instanceName,
-              player_name: item.name,
-              score: item.score
-            }
-          })
-          // 一条一条插入数据库，尴尬，拿不到返回值，不知道成功失败了多少条
-          insertArr.map(item => {
-            db.insert('instance_detail', item)
-          })
-          res.send({})
-        }, err => {
-          console.log(err)
-          res.send({ 'err': err })
+      // 分两个情况
+      // 1 - instance_detail不存在该副本的数据，将数据全部insert，不管insert结果，接口返回success
+      // 2 - instance_detail已有副本数据，update相关数据
+      let rawData2
+      if (!existData.length) {
+        // 1 - instance_detail不存在该副本的数据，将数据全部insert，不管insert结果，接口返回success
+        let insertArr = rawData.map(item => {
+          return {
+            instanceListId: instanceListId,
+            instanceListName: content.instanceName,
+            playerId: item.id,
+            playerName: item.name,
+            score: item.score
+          }
         })
-      // .then(data => {
-      //   // 将识图结果作为/images接口返回数据
-      //   let wordsList = dealResData(data)
-      //   res.status(200),
-      //     res.send({
-      //       'data': {
-      //         instanceName: content.instanceName,
-      //         statisticalTime: content.statisticalTime,
-      //         statisticalPeriod: content.statisticalPeriod,
-      //         phoneType: content.phoneType,
-      //         content: wordsList
-      //       }
-      //     })
-      // })
+        // 一条一条插入数据库，尴尬，暂时不知道成功失败了多少条
+        insertArr.map(item => {
+          let sql = `INSERT INTO instance_detail(instance_list_id, instance_list_name, player_id, player_name, score) 
+          VALUES(${item.instanceListId}, '${item.instanceListName}', ${item.playerId}, '${item.playerName}', ${item.score})`
+          db.freeInsert('instance_detail', sql)
+        })
+      } else {
+        // 2 - instance_detail已有副本数据，update相关数据
+        // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        // !!!!!!!!注意，这里先不处理新来的族友了，太麻烦了
+        // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        // 遍历rawData，如果在existData中存在，则过滤掉
+        // 过滤条件：playerId相同 && (existData.score有值 || rawData.score为空)需要被过滤掉
+        rawData2 = rawData.filter(item => !(existData.some(cur => cur['player_id'] === item.id && (cur.score || !item.score))))
+        console.log(rawData2)
+        // 一条一条更新数据库，尴尬，暂时不知道成功失败了多少条
+        // 类似 { id: 5, name: '骑莹—首领拉我', err_name: '骑莹一首领拉我', score: '109' } 的数组
+        rawData2.map(item => {
+          let sql = `UPDATE instance_detail id
+                     SET id.score = ${item.score}
+                     WHERE id.instance_list_id = ${instanceListId} AND id.player_id = ${item.id}`
+          db.freeInsert('instance_detail', sql)
+        })
+      }
+      res.send({ status: 'true', msg: 'successful' })
     }, err => {
       console.log(err)
-      res.send({ 'err': err })
+      res.send({ status: 'false', err: err })
     })
-
 });
+
+// 查询副本情况接口
+app.get('/query', (req, res) => {
+  console.log(req.query)
+  let params = req.query
+  let sql = `SELECT * FROM instance_list 
+             WHERE instance_id = ${params.instanceId} AND start_time >= '${params.startTime}' AND end_time <= '${params.endTime}'`
+  db.freeQuery('instance_list', sql)
+    .then((result) => {
+      return result.data[0].id
+    })
+    .then((result) => {
+      let sql2 = `SELECT * FROM instance_detail WHERE instance_list_id = ${result} ORDER BY player_id`
+      return db.freeQuery('instance_detail', sql2)
+    })
+    .then((result) => {
+      // console.log(result)
+      res.send(JSON.parse(JSON.stringify(result)))
+    }, (err) => {
+      console.log(err)
+      res.send({ err: err })
+    })
+})
 
 //配置服务端口
 let server = app.listen(3000, () => {
@@ -132,7 +215,7 @@ const getBase64Img = (data) => {
   return new Promise((resolve, reject) => {
     // 拼接图片，从上至下
     gm().append(...data)
-      .write(tempPath, function (err) {
+      .write(tempPath, (err) => {
         if (!err) {
           console.log('hooray!!!');
           resolve()
@@ -206,6 +289,7 @@ const dealResData = (data) => {
   if (!data.length || data.length % 3 !== 0) {
     // console.log(data)
     return {
+      status: 'false',
       msg: '文字识别结果没有值，或者不是3的倍数',
       data: data
     }
@@ -231,5 +315,6 @@ const dealResData = (data) => {
   }
   // console.log('wordList: ')
   // console.log(wordList)
-  return wordList
+  return { status: 'true', data: wordList }
 }
+

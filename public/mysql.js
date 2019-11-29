@@ -1,8 +1,9 @@
 /**
  * 对数据库连接、insert、select操作进行封装
- * 对外提供两个查询函数
+ * 对外提供3个查询函数
  * 1 - insert
  * 2 - query
+ * 3 - freeQuery(查询语句寄几拼，特别自由)
  */
 const mysql = require('mysql')
 // 自己写的模块
@@ -34,15 +35,60 @@ let pool = mysql.createPool(config)
  * @return {object} 根据insert结果，返回相应的对象{status: '', msg: ''}
  */
 let insert = (tableName, data) => {
-  let fields = '', values = '', sql, cb;
-  for (let k in data) {
-    fields += k + ',';
-    values = `${values}'${data[k]}',`
-  }
-  // 将最后一个逗号删掉
-  fields = fields.slice(0, -1);
-  values = values.slice(0, -1);
-  sql = `INSERT INTO ${tableName}(${fields}) VALUES(${values})`;
+  return new Promise((resolve, reject) => {
+    let fields = '', values = '', sql, cb;
+    for (let k in data) {
+      fields += k + ',';
+      values = `${values}'${data[k]}',`
+    }
+    // 将最后一个逗号删掉
+    fields = fields.slice(0, -1);
+    values = values.slice(0, -1);
+    sql = `INSERT INTO ${tableName}(${fields}) VALUES(${values})`;
+    cb = (err, result) => {
+      // 调用失败
+      if (err) {
+        console.log(`---------------------INSERT INTO ${tableName}-------------------`);
+        console.log('[TIME]        - ', new Date())
+        console.log('[INSERT SQL]  - ', err.sql)
+        console.log('[ERR MESSAGE] - ', err.message)
+        console.log('-----------------------------------------------------------------\n');
+        reject({ status: 'false', msg: err.message })
+      }
+      // 调用成功
+      console.log(`---------------------INSERT INTO ${tableName}-------------------`);
+      console.log('[TIME]    - ', new Date())
+      // console.log('[MESSAGE] - ', JSON.parse(JSON.stringify(result)))
+      console.log('[MESSAGE] - ', result)
+      console.log('-----------------------------------------------------------------\n');
+      resolve({ status: 'true', msg: 'successful' })
+    }
+    pool.getConnection((err, conn) => {
+      // 初始化数据库连接失败
+      if (err) {
+        console.log(`---------------------GET POOL CONNECTION FAIL-------------------`);
+        console.log('[TIME]        - ', new Date())
+        console.log('[ERR MESSAGE] - ', err)
+        console.log('-----------------------------------------------------------------\n');
+        reject({ status: 'false', msg: '初始化数据库连接失败' })
+      }
+      conn.query(sql, (err, result) => {
+        // 释放连接到连接池
+        conn.release();
+        cb(err, result)
+      });
+    })
+  })
+}
+
+/**
+ * 封装插入-INSERT操作，只是帮你运行sql语句辣
+ * @param {string} tableName 传表名只是为了输出log
+ * @param {string} sql 
+ * @return {object} 根据insert结果，返回相应的对象{status: '', msg: ''}
+ */
+let freeInsert = (tableName, sql) => {
+  let cb
   cb = (err, result) => {
     // 调用失败
     if (err) {
@@ -56,7 +102,8 @@ let insert = (tableName, data) => {
     // 调用成功
     console.log(`---------------------INSERT INTO ${tableName}-------------------`);
     console.log('[TIME]    - ', new Date())
-    console.log('[MESSAGE] - ', JSON.parse(JSON.stringify(result)))
+    // console.log('[MESSAGE] - ', JSON.parse(JSON.stringify(result)))
+    console.log('[MESSAGE] - ', result)
     console.log('-----------------------------------------------------------------\n');
     return { status: 'true', msg: 'successful' }
   }
@@ -111,11 +158,12 @@ let query = (tableName, where) => {
     let parsedResult = JSON.parse(JSON.stringify(result))
     console.log(`---------------------SELECT FROM ${tableName}-------------------`);
     console.log('[TIME]    - ', new Date())
+    console.log('[SELECT SQL]  - ', sql)
     console.log('[DATA] - ', JSON.stringify(result))
     console.log('-----------------------------------------------------------------\n');
     return { status: 'true', msg: 'successful', data: parsedResult }
   }
-  pool.getConnection((err, conn) => {
+  let msg = pool.getConnection((err, conn) => {
     // 初始化数据库连接失败
     if (err) {
       console.log(`---------------------GET POOL CONNECTION FAIL-------------------`);
@@ -130,9 +178,58 @@ let query = (tableName, where) => {
       cb(err, result)
     });
   })
+  return msg
+}
+
+/**
+ * 封装查询-SELECT操作，只是帮你运行sql语句辣
+ * @param {string} tableName 传表名只是为了输出log
+ * @param {string} sql 
+ * @return {object} { status: 'true', msg: 'successful', data: parsedResult }，其中，data仅返回符合查询条件的结果数组
+ */
+let freeQuery = (tableName, sql) => {
+  return new Promise((resolve, reject) => {
+    let cb
+    cb = (err, result) => {
+      // 调用失败
+      if (err) {
+        console.log(`---------------------SELECT FROM ${tableName}-------------------`);
+        console.log('[TIME]        - ', new Date())
+        console.log('[SELECT SQL]  - ', err.sql)
+        console.log('[ERR MESSAGE] - ', err.message)
+        console.log('-----------------------------------------------------------------\n');
+        reject({ status: 'false', msg: err.message })
+      }
+      // 调用成功
+      let parsedResult = JSON.parse(JSON.stringify(result))
+      console.log(`---------------------SELECT FROM ${tableName}-------------------`);
+      console.log('[TIME]        - ', new Date())
+      console.log('[SELECT SQL]  - ', sql)
+      console.log('[DATA]        - ', JSON.stringify(result))
+      console.log('-----------------------------------------------------------------\n');
+      resolve({ status: 'true', msg: 'successful', data: parsedResult })
+    }
+    pool.getConnection((err, conn) => {
+      // 初始化数据库连接失败
+      if (err) {
+        console.log(`---------------------GET POOL CONNECTION FAIL-------------------`);
+        console.log('[TIME]        - ', new Date())
+        console.log('[ERR MESSAGE] - ', err)
+        console.log('-----------------------------------------------------------------\n');
+        reject({ status: 'false', msg: err })
+      }
+      conn.query(sql, (err, result) => {
+        // 释放连接到连接池
+        conn.release();
+        cb(err, result)
+      });
+    })
+  })
 }
 
 module.exports = {
   insert: insert,
-  query: query
+  freeInsert: freeInsert,
+  query: query,
+  freeQuery: freeQuery
 }
